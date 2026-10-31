@@ -1,0 +1,7 @@
+config SHIELD_KEYCHRON_B11_PRO_ANSI
+    def_bool $(shields_list_contains,keychron_b11_pro_ansi)
+    select SHIELD_KEYCHRON_V1MAX
+    select ENABLE_GPIO_LED
+    select ADD_PPT_REPORT_RATE
+    select COL_595_OUTPUT
+    select ADAPATIVE_NKRO

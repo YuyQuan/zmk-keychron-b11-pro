@@ -1,0 +1,410 @@
+/*
+ * Keychron B11 Pro (ANSI, 65% Alice, foldable) - RTL8762G.
+ *
+ * Hardware facts below come from the stock 1.0.0 OTA image
+ * (b11pro_v1.0.0_ansi_202509241023_ota_1.bin, USB 3434:07b0), read with a
+ * pointer scan of its device tables, not from a schematic. Source of each fact:
+ *   - matrix: 8 rows x 15 cols, cols 0-7 behind a 74HC595 (data B21, rclk A5,
+ *     clk A6 - the same three pins as the K3 SE2 shield), cols 8-14 are direct
+ *     GPIO outputs, rows are active-low inputs with pull-ups.
+ *   - key index table (matrix cell -> reading-order key number) at stock
+ *     0x4041158; the transform below is generated from it and agrees with
+ *     Keychron's launcher layout JSON (b11pro_ansi_launcher_layout.json).
+ *   - direct inputs: image order A26, A10, A8, A9, B22. Stock keymap binds them to
+ *     &mo 3 (Windows base layer), &kc MOD_USB, &kc MOD_PPT, &kc MOD_BLE, &kc BAT_CHG,
+ *     so A26 is the Mac/Win switch (high = Windows), not a fold sensor.
+ * Confirmed by disassembling the stock scan (see b11-pro/hardware.md): pins,
+ * row/col order, 595 bit order (col n = Q n, active low), LED pins and polarity.
+ * Still unverified on a board: anything electrical the image cannot show.
+ */
+#include <dt-bindings/zmk/matrix_transform.h>
+#include <dt-bindings/led/led.h>
+#include <zephyr/dt-bindings/gpio/realtek-rtl87x2g-gpio.h>
+
+&gpioa {
+    status = "okay";
+};
+&gpiob {
+    status = "okay";
+};
+&usb {
+    status = "okay";
+};
+&timer2 {
+    status = "okay";
+    prescaler = <1>;
+};
+&timer8 {
+    status = "okay";
+};
+&timer9 {
+    status = "okay";
+};
+&corewdt {
+    status = "okay";
+    initial-timeout-ms = <5000>;
+};
+&aonwdt {
+    status = "disabled";
+    initial-timeout-ms = <5000>;
+};
+/ {
+    aliases {
+        watchdog = &corewdt;
+    };
+};
+
+&adc {
+    pinctrl-0 = <&adc_default>;
+    pinctrl-1 = <&adc_sleep>;
+    pinctrl-names = "default","sleep";
+    #address-cells = <1>;
+    #size-cells = <0>;
+    status = "okay";
+    is-bypass-mode= <0x08>;
+    channel@3 {
+        reg = <3>;
+        zephyr,gain = "ADC_GAIN_1";
+        zephyr,reference = "ADC_REF_INTERNAL";
+        zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+        zephyr,resolution = <12>;
+    };
+};
+
+/ {
+    chosen {
+        zmk,kscan = &kscan_comp;
+        zmk,matrix-transform = &default_transform;
+        zmk,battery = &vbatt;
+    };
+
+    kscan_comp: kscan {
+        compatible = "zmk,kscan-composite";
+        rows = <9>;
+        columns = <15>;
+        // direct init first, shifted below the matrix rows
+        direct {
+            kscan = <&kscan1>;
+            row-offset = <8>;
+        };
+        matrix {
+            kscan = <&kscan0>;
+        };
+    };
+
+    kscan0: kscan_matrix {
+        compatible = "zmk,kscan-gpio-matrix";
+
+        diode-direction = "col2row"; // col output, row input
+        debounce-scan-period-ms = <1>;
+        debounce-press-ms = <0>;
+        debounce-release-ms = <50>;
+
+        row-gpios
+              = <&gpiob 4 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>    //r0 P3_7
+            , <&gpiob 3 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>    //r1 P3_6
+            , <&gpiob 2 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>    //r2 P3_5
+            , <&gpiob 1 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>    //r3 P3_4
+            , <&gpiob 0 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>    //r4 P3_3
+            , <&gpioa 31 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>   //r5 P3_2
+            , <&gpiob 19 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>   //r6 P5_6
+            , <&gpiob 20 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>   //r7 P5_7
+            ;
+        col-gpios
+            = <&gpiob 21 (GPIO_ACTIVE_HIGH)>  //c0 P9_0  595 DATA
+            , <&gpioa 5  (GPIO_ACTIVE_HIGH)>  //c1 P0_5  595 RCK
+            , <&gpioa 6  (GPIO_ACTIVE_HIGH)>  //c2 P0_6  595 CLK
+            , <&gpioa 6  (GPIO_ACTIVE_HIGH)>  //c3 (595 output, placeholder pin)
+            , <&gpioa 6  (GPIO_ACTIVE_HIGH)>  //c4 (595 output, placeholder pin)
+            , <&gpioa 6  (GPIO_ACTIVE_HIGH)>  //c5 (595 output, placeholder pin)
+            , <&gpioa 6  (GPIO_ACTIVE_HIGH)>  //c6 (595 output, placeholder pin)
+            , <&gpioa 6  (GPIO_ACTIVE_HIGH)>  //c7 (595 output, placeholder pin)
+            , <&gpiob 7  (GPIO_ACTIVE_HIGH)>  //c8  P4_2 direct
+            , <&gpiob 6  (GPIO_ACTIVE_HIGH)>  //c9  P4_1 direct
+            , <&gpioa 4  (GPIO_ACTIVE_HIGH)>  //c10 P0_4 direct
+            , <&gpiob 8  (GPIO_ACTIVE_HIGH)>  //c11 P4_3 direct
+            , <&gpiob 5  (GPIO_ACTIVE_HIGH)>  //c12 P4_0 direct
+            , <&gpioa 17 (GPIO_ACTIVE_HIGH)>  //c13 XI32K direct
+            , <&gpioa 18 (GPIO_ACTIVE_HIGH)>  //c14 XO32K direct
+            ;
+        pinctrl-0 = <&gpio_default>;
+        pinctrl-1 = <&gpio_sleep>;
+        pinctrl-names = "default","sleep";
+    };
+
+    kscan1: kscan_direct {
+        compatible = "zmk,kscan-gpio-direct";
+        input-gpios =
+          <&gpioa 26 (GPIO_ACTIVE_HIGH)>  //Mac/Win switch, high = Win (stock: &mo 3)  P2_5
+        , <&gpioa 10 (GPIO_ACTIVE_LOW)>   //slider USB position + usb_det gate (stock: &kc MOD_USB)  P1_2
+        , <&gpioa 8  (GPIO_ACTIVE_LOW)>   //2.4G slider (stock: &kc MOD_PPT)  P1_0
+        , <&gpioa 9  (GPIO_ACTIVE_LOW)>   //BT slider (stock: &kc MOD_BLE)  P1_1
+        , <&gpiob 22 (GPIO_ACTIVE_LOW)>   //charging (stock: &kc BAT_CHG)  P9_1
+        ;
+        debounce-scan-period-ms = <20>;
+        debounce-release-ms = <20>;
+        pinctrl-0 = <&gpio_direct_default>;
+        pinctrl-1 = <&gpio_direct_sleep>;
+        pinctrl-names = "default","sleep";
+    };
+
+    vbatt: vbatt {
+        compatible = "zmk,battery-voltage-divider";
+        io-channels = <&adc 3>;
+        output-ohms = <220000>;
+        full-ohms = <(1000000 + 220000)>;
+    };
+
+    // Indicator LEDs, active low. Stock device names: led_caps, led_ble, led_ppt.
+    led_caps: led_caps {
+        compatible = "gpio-leds";
+        led1 {
+            gpios = <&gpioa 27 GPIO_ACTIVE_LOW>;  //P2_6
+        };
+    };
+    led_ble: led_ble {
+        compatible = "gpio-leds";
+        led2 {
+            gpios = <&gpioa 28 GPIO_ACTIVE_LOW>;  //P2_7
+        };
+    };
+    // Battery / charge LED pair, stock device "led_rgb" (2 channels, active low).
+    led_rgb: led_rgb {
+        compatible = "gpio-leds";
+        led_rgb_0 {
+            gpios = <&gpioa 29 GPIO_ACTIVE_LOW>;  //P3_0
+        };
+        led_rgb_1 {
+            gpios = <&gpioa 25 GPIO_ACTIVE_LOW>;  //P2_4
+        };
+    };
+    led_ppt: led_ppt {
+        compatible = "gpio-leds";
+        led5 {
+            gpios = <&gpioa 16 GPIO_ACTIVE_LOW>;  //MICBIAS pad (P8_0)
+        };
+    };
+
+    hc_595 {
+        compatible = "gpio-leds";
+        clk_595: clk_595 {
+            gpios = <&gpioa 6 GPIO_ACTIVE_HIGH>;  //clk  p0_6
+        };
+        data_595: data_595 {
+            gpios = <&gpiob 21 GPIO_ACTIVE_HIGH>;  //data p9_0
+        };
+        rclk_595: rclk_595 {
+            gpios = <&gpioa 5 GPIO_ACTIVE_HIGH>;  //rclk p0_5
+        };
+    };
+
+    gpio_ctrls {
+        compatible = "gpio-leds";
+        usb_det: usb_det {
+            gpios = <&gpioa 10 GPIO_ACTIVE_LOW>;  //usb det P1_2
+        };
+        pwr_ctrl: pwr_ctrl {
+            gpios = <&gpioa 30 GPIO_ACTIVE_LOW>;  //stock led_pwr_ctrl P3_1
+        };
+    };
+
+    ppt: ppt {
+        compatible = "zmk,ppt-node";
+        enh-timers = <&timer8 &timer9>;
+        status = "okay";
+    };
+
+    // 65 keys in reading order (the Launcher's order), then the five direct
+    // inputs in row 8. Rows/cols are the matrix cells of the stock key table.
+    default_transform: matrix_transform {
+        compatible = "zmk,matrix-transform";
+        rows = <9>;
+        columns = <15>;
+        map = <
+            //esc 1 2 3 4 5 6 7 8 9 0 - = bksp
+            RC(6,1) RC(7,1) RC(7,2) RC(7,3) RC(7,4) RC(6,4) RC(6,5) RC(7,5) RC(7,6) RC(7,7) RC(7,8) RC(6,8) RC(6,6) RC(1,10)
+            //tab q w e r t y u i o p [ ] backslash
+            RC(1,1) RC(0,1) RC(0,2) RC(0,3) RC(0,4) RC(1,4) RC(1,5) RC(0,5) RC(0,6) RC(0,7) RC(0,8) RC(1,8) RC(1,6) RC(2,10)
+            //caps a s d f g h j k l ; ' enter
+            RC(1,2) RC(2,1) RC(2,2) RC(2,3) RC(2,4) RC(3,4) RC(3,5) RC(2,5) RC(2,6) RC(2,7) RC(2,8) RC(3,8) RC(4,10)
+            //lshft z x c v b n m , . / rshft up
+            RC(1,13) RC(4,1) RC(4,2) RC(4,3) RC(4,4) RC(5,4) RC(5,5) RC(4,5) RC(4,6) RC(4,7) RC(5,8) RC(2,13) RC(3,12)
+            //lctrl lgui lalt alt2 spc_l spc_r fn rctrl left down right
+            RC(6,0) RC(4,8) RC(1,14) RC(3,9) RC(3,11) RC(0,9) RC(5,9) RC(4,0) RC(5,12) RC(5,11) RC(7,11)
+            //mac/win switch  usb  2.4G  bt  charge
+            RC(8,0) RC(8,1) RC(8,2) RC(8,3) RC(8,4)
+        >;
+    };
+
+    // No encoder on the B11 Pro. The board dts always builds the sensor-rotate code, which needs a
+    // keymap-sensors node to link, so keep the K3 SE2 shape with the qdec disabled.
+    sensors: sensors {
+        compatible = "zmk,keymap-sensors";
+        status = "okay";
+        sensors = <&aon_qdec>;
+        triggers-per-rotation = <20>;
+    };
+};
+
+// The Realtek hardware key-scan block is unused: the matrix is scanned over GPIO.
+&kscan {
+    pinctrl-0 = <&kscan_default>;
+    pinctrl-1 = <&kscan_sleep>;
+    pinctrl-names = "default", "sleep";
+    row-size = <8>;
+    col-size = <15>;
+    debounce-time-us = <0>;
+    scan-time-us = <0>;
+    release-time-us = <10000>;
+    scan-debounce-cnt = <1>;
+    status = "disabled";
+};
+
+&pinctrl {
+    adc_default: adc_default {
+        group1 {
+            psels = <RTL87X2G_PSEL(SW_MODE, P2_3, DIR_IN, DRV_LOW, PULL_NONE)>;
+        };
+    };
+    adc_sleep: adc_sleep {
+        group1 {
+            psels = <RTL87X2G_PSEL(SW_MODE, P2_3, DIR_IN, DRV_LOW, PULL_DOWN)>;
+        };
+    };
+
+    // Required by the disabled &kscan node above; same shape as the K3 SE2 shield.
+    kscan_default: kscan_default {
+        group1 {
+            psels = <RTL87X2G_PSEL(KEY_COL_0, P9_3, DIR_OUT, DRV_LOW, PULL_NONE)>;
+        };
+        group2 {
+            psels = <RTL87X2G_PSEL(KEY_ROW_0, P1_5, DIR_IN, DRV_LOW, PULL_UP)>;
+            bias-pull-strong;
+        };
+    };
+    kscan_sleep: kscan_sleep {
+        group1 {
+            psels = <RTL87X2G_PSEL(SW_MODE, P9_3, DIR_OUT, DRV_LOW, PULL_DOWN)>;
+        };
+        group2 {
+            psels = <RTL87X2G_PSEL(SW_MODE, P1_5, DIR_IN, DRV_HIGH, PULL_UP)>;
+            bias-pull-strong;
+            wakeup-low;
+        };
+    };
+
+    // Console UART the board dts points at. Debug only: serial is off in the .conf, and P3_0 / P3_1
+    // (A29 / A30) are the stock firmware's LED / power control pins, so do not turn the UART on without
+    // moving them.
+    uart2_default: uart2_default {
+        group1 {
+            psels = <RTL87X2G_PSEL(UART2_TX, P3_0, DIR_OUT, DRV_HIGH, PULL_UP)>,
+            <RTL87X2G_PSEL(UART2_RX, P3_1, DIR_IN, DRV_HIGH, PULL_UP)>;
+        };
+    };
+    uart2_sleep: uart2_sleep {
+        group1 {
+            psels = <RTL87X2G_PSEL(SW_MODE, P3_0, DIR_IN, DRV_HIGH, PULL_UP)>,
+            <RTL87X2G_PSEL(SW_MODE, P3_1, DIR_IN, DRV_HIGH, PULL_UP)>;
+        };
+    };
+
+    gpio_default: gpio_default {
+        // rows first (the sleep-time pin walk in kscan_gpio_matrix.c counts them), then outputs
+        group1 {
+            psels =
+             <RTL87X2G_PSEL(DWGPIO, P3_7, DIR_IN, DRV_HIGH, PULL_UP)>,
+             <RTL87X2G_PSEL(DWGPIO, P3_6, DIR_IN, DRV_HIGH, PULL_UP)>,
+             <RTL87X2G_PSEL(DWGPIO, P3_5, DIR_IN, DRV_HIGH, PULL_UP)>,
+             <RTL87X2G_PSEL(DWGPIO, P3_4, DIR_IN, DRV_HIGH, PULL_UP)>,
+             <RTL87X2G_PSEL(DWGPIO, P3_3, DIR_IN, DRV_HIGH, PULL_UP)>,
+             <RTL87X2G_PSEL(DWGPIO, P3_2, DIR_IN, DRV_HIGH, PULL_UP)>,
+             <RTL87X2G_PSEL(DWGPIO, P5_6, DIR_IN, DRV_HIGH, PULL_UP)>,
+             <RTL87X2G_PSEL(DWGPIO, P5_7, DIR_IN, DRV_HIGH, PULL_UP)>;
+             // weak pull-up, as stock: with bias-pull-strong the 595 columns (0-7) read nothing
+        };
+        group2 {
+            psels =
+             <RTL87X2G_PSEL(DWGPIO, P9_0, DIR_OUT, DRV_HIGH, PULL_UP)>,
+             <RTL87X2G_PSEL(DWGPIO, P0_5, DIR_OUT, DRV_HIGH, PULL_UP)>,
+             <RTL87X2G_PSEL(DWGPIO, P0_6, DIR_OUT, DRV_HIGH, PULL_UP)>,
+             <RTL87X2G_PSEL(DWGPIO, P4_2, DIR_OUT, DRV_HIGH, PULL_UP)>,
+             <RTL87X2G_PSEL(DWGPIO, P4_1, DIR_OUT, DRV_HIGH, PULL_UP)>,
+             <RTL87X2G_PSEL(DWGPIO, P0_4, DIR_OUT, DRV_HIGH, PULL_UP)>,
+             <RTL87X2G_PSEL(DWGPIO, P4_3, DIR_OUT, DRV_HIGH, PULL_UP)>,
+             <RTL87X2G_PSEL(DWGPIO, P4_0, DIR_OUT, DRV_HIGH, PULL_UP)>,
+             <RTL87X2G_PSEL(DWGPIO, XI32K, DIR_OUT, DRV_HIGH, PULL_UP)>,
+             <RTL87X2G_PSEL(DWGPIO, XO32K, DIR_OUT, DRV_HIGH, PULL_UP)>;
+        };
+    };
+    gpio_sleep: gpio_sleep {
+        group1 {
+            psels =
+             <RTL87X2G_PSEL(SW_MODE, P3_7, DIR_IN, DRV_HIGH, PULL_UP)>,
+             <RTL87X2G_PSEL(SW_MODE, P3_6, DIR_IN, DRV_HIGH, PULL_UP)>,
+             <RTL87X2G_PSEL(SW_MODE, P3_5, DIR_IN, DRV_HIGH, PULL_UP)>,
+             <RTL87X2G_PSEL(SW_MODE, P3_4, DIR_IN, DRV_HIGH, PULL_UP)>,
+             <RTL87X2G_PSEL(SW_MODE, P3_3, DIR_IN, DRV_HIGH, PULL_UP)>,
+             <RTL87X2G_PSEL(SW_MODE, P3_2, DIR_IN, DRV_HIGH, PULL_UP)>,
+             <RTL87X2G_PSEL(SW_MODE, P5_6, DIR_IN, DRV_HIGH, PULL_UP)>,
+             <RTL87X2G_PSEL(SW_MODE, P5_7, DIR_IN, DRV_HIGH, PULL_UP)>;
+             wakeup-low;
+        };
+        group2 {
+            psels =
+             <RTL87X2G_PSEL(SW_MODE, P9_0, DIR_OUT, DRV_LOW, PULL_DOWN)>,
+             <RTL87X2G_PSEL(SW_MODE, P0_5, DIR_OUT, DRV_LOW, PULL_DOWN)>,
+             <RTL87X2G_PSEL(SW_MODE, P0_6, DIR_OUT, DRV_LOW, PULL_DOWN)>,
+             <RTL87X2G_PSEL(SW_MODE, P4_2, DIR_OUT, DRV_LOW, PULL_DOWN)>,
+             <RTL87X2G_PSEL(SW_MODE, P4_1, DIR_OUT, DRV_LOW, PULL_DOWN)>,
+             <RTL87X2G_PSEL(SW_MODE, P0_4, DIR_OUT, DRV_LOW, PULL_DOWN)>,
+             <RTL87X2G_PSEL(SW_MODE, P4_3, DIR_OUT, DRV_LOW, PULL_DOWN)>,
+             <RTL87X2G_PSEL(SW_MODE, P4_0, DIR_OUT, DRV_LOW, PULL_DOWN)>,
+             <RTL87X2G_PSEL(SW_MODE, XI32K, DIR_OUT, DRV_LOW, PULL_DOWN)>,
+             <RTL87X2G_PSEL(SW_MODE, XO32K, DIR_OUT, DRV_LOW, PULL_DOWN)>;
+        };
+    };
+
+    gpio_direct_default: gpio_direct_default {
+        group1 {
+            psels =
+            <RTL87X2G_PSEL(DWGPIO, P2_5, DIR_IN, DRV_HIGH, PULL_NONE)>,
+            <RTL87X2G_PSEL(DWGPIO, P1_2, DIR_IN, DRV_HIGH, PULL_NONE)>,
+            <RTL87X2G_PSEL(DWGPIO, P1_0, DIR_IN, DRV_HIGH, PULL_NONE)>,
+            <RTL87X2G_PSEL(DWGPIO, P1_1, DIR_IN, DRV_HIGH, PULL_NONE)>,
+            <RTL87X2G_PSEL(DWGPIO, P9_1, DIR_IN, DRV_HIGH, PULL_UP)>;//charge pin leaks, has to pull up
+        };
+    };
+    gpio_direct_sleep: gpio_direct_sleep {
+        group1 {
+            psels =
+            <RTL87X2G_PSEL(SW_MODE, P2_5, DIR_IN, DRV_HIGH, PULL_NONE)>,
+            <RTL87X2G_PSEL(SW_MODE, P1_2, DIR_IN, DRV_HIGH, PULL_NONE)>,
+            <RTL87X2G_PSEL(SW_MODE, P1_0, DIR_IN, DRV_HIGH, PULL_NONE)>,
+            <RTL87X2G_PSEL(SW_MODE, P1_1, DIR_IN, DRV_HIGH, PULL_NONE)>,
+            <RTL87X2G_PSEL(SW_MODE, P9_1, DIR_IN, DRV_HIGH, PULL_UP)>;
+        };
+    };
+
+    qdec_default: qdec_default {
+        group1 {
+            psels = <RTL87X2G_PSEL(QDPH0_IN_P9_0_P9_1, P9_0, DIR_IN, DRV_LOW, PULL_UP)>,
+             <RTL87X2G_PSEL(QDPH0_IN_P9_0_P9_1, P9_1, DIR_IN, DRV_LOW, PULL_UP)>;
+             wakeup-low;
+        };
+    };
+    qdec_sleep: qdec_sleep {
+        group1 {
+            psels = <RTL87X2G_PSEL(SW_MODE, P9_0, DIR_IN, DRV_HIGH, PULL_NONE)>,
+             <RTL87X2G_PSEL(SW_MODE, P9_1, DIR_IN, DRV_HIGH, PULL_NONE)>;
+        };
+    };
+};
+
+&aon_qdec {
+    status = "disabled";
+    pinctrl-0 = <&qdec_default>;
+    pinctrl-1 = <&qdec_sleep>;
+    pinctrl-names = "default","sleep";
+    counts-per-revolution = <4>;
+};
