@@ -360,7 +360,11 @@ int leds_init(void) {
     {
         led_bat_index = index;
         leds[index].dev = DEVICE_DT_GET(DT_NODELABEL(led_rgb));
+#if CONFIG_SHIELD_KEYCHRON_B11_PRO_ANSI
+        leds[index].color_count = 2; /* stock B11 Pro: two GPIO channels */
+#else
         leds[index].color_count = 3;
+#endif
         index++;
     }
 #endif
@@ -700,7 +704,7 @@ void gpio_led_bat_display(void) {
         set_color(&leds[led_ppt_index], &nocolor);
     }
     k_work_reschedule(&bat_show_work, K_MSEC(3000));
-#elif CONFIG_SHIELD_KEYCHRON_K5SE2_ANSI
+#elif CONFIG_SHIELD_KEYCHRON_K5SE2_ANSI || CONFIG_SHIELD_KEYCHRON_B11_PRO_ANSI
     if (level > 50) {
         set_color(&leds[led_ppt_index], &color);
         set_color(&leds[led_ble_index], &nocolor);
@@ -729,7 +733,7 @@ void gpio_led_bat_display_off(void) {
     struct led_color nocolor = LED_COLOR(0, 0, 0);
 #ifdef CONFIG_SHIELD_KEYCHRON_K3SE2_ANSI
     set_color(&leds[led_ppt_index], &nocolor);
-#elif CONFIG_SHIELD_KEYCHRON_K5SE2_ANSI
+#elif CONFIG_SHIELD_KEYCHRON_K5SE2_ANSI || CONFIG_SHIELD_KEYCHRON_B11_PRO_ANSI
     set_color(&leds[led_ppt_index], &nocolor);
     set_color(&leds[led_ble_index], &nocolor);
 #else

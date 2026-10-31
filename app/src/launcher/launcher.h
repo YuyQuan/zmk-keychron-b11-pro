@@ -364,6 +364,7 @@ void set_zmk_encoders(uint8_t layer, bool clockwise, uint16_t keycode);
 void generate_launcher_keymaps(void);
 void launcher_save_debounce(void);
 void launcher_set_path(uint8_t path);
+void launcher_ble_send(const uint8_t *data); // launcher_ble.c, CONFIG_ZMK_LAUNCHER_BLE
 
 static inline uint8_t eeprom_read_byte(uint16_t addr) { return launcher_device.raw[addr]; }
 static inline void eeprom_update_byte(uint16_t addr, uint8_t value) {

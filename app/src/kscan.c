@@ -12,6 +12,8 @@
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
+#include <string.h>
+#include <zmk/keymap.h>
 #include <zmk/matrix_transform.h>
 #include <zmk/event_manager.h>
 #include <zmk/events/position_state_changed.h>
@@ -60,9 +62,32 @@ const struct gpio_dt_spec debug_io = GPIO_DT_SPEC_GET(DT_NODELABEL(debug_io), gp
 bool dip_switch_update_user(uint8_t index, bool active);
 void process_rgb_matrix(uint8_t row, uint8_t col, bool pressed);
 uint8_t zmk_keymap_highest_layer_active(void);
+#ifdef CONFIG_ZMK_LAUNCHER
+void keypeek_key_event(uint32_t row, uint32_t col, bool pressed);
+#endif
 struct zmk_behavior_binding *get_zmk_keymap(uint8_t layer, uint8_t pos);
 int hid_listener_keycode_pressed(const struct zmk_keycode_state_changed *ev);
 int hid_listener_keycode_released(const struct zmk_keycode_state_changed *ev);
+
+#if IS_ENABLED(CONFIG_SHIELD_KEYCHRON_B11_PRO_ANSI)
+// Ghost filter tie-break (kscan_gpio_matrix.c): true when the key does something on an active layer
+// above the default one, i.e. not transparent all the way down to the base layer and not &none.
+
+bool zmk_kscan_ghost_prefer(uint32_t row, uint32_t col) {
+    int32_t position = zmk_matrix_transform_row_column_to_position(row, col);
+    if (position < 0) {
+        return false;
+    }
+    for (int layer = zmk_keymap_highest_layer_active(); layer > zmk_keymap_layer_default(); layer--) {
+        const char *dev = get_zmk_keymap(layer, position)->behavior_dev;
+        if (!zmk_keymap_layer_active(layer) || (dev && strcmp(dev, "transparent") == 0)) {
+            continue;
+        }
+        return dev && strcmp(dev, "none") != 0;
+    }
+    return false;
+}
+#endif
 
 static void zmk_kscan_callback(const struct device *dev, uint32_t row, uint32_t column,
                                bool pressed) {
@@ -113,6 +138,9 @@ void zmk_kscan_process_msgq(struct k_work *item) {
 
     while (k_msgq_get(&zmk_kscan_msgq, &ev, K_NO_WAIT) == 0) {
         bool pressed = (ev.state == ZMK_KSCAN_EVENT_STATE_PRESSED);
+#ifdef CONFIG_ZMK_LAUNCHER
+        keypeek_key_event(ev.row, ev.column, pressed);
+#endif
         int32_t position = zmk_matrix_transform_row_column_to_position(ev.row, ev.column);
         LOG_ERR("r:%d,c:%d,pos:%d", ev.row, ev.column, position);
         if (position < 0) {

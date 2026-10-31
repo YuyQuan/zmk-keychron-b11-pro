@@ -62,6 +62,7 @@ static void mousekey_debug(void);
 static uint8_t mousekey_accel = 0;
 static uint8_t mousekey_repeat = 0;
 static uint8_t mousekey_wheel_repeat = 0;
+static uint8_t held_dirs = 0; // KC_MS_UP..KC_MS_RIGHT held, bit = code - KC_MS_UP
 #ifdef MOUSEKEY_INERTIA
 static uint8_t mousekey_frame = 0; // track whether gesture is inactive, first frame, or repeating
 static int8_t mousekey_x_dir = 0;  // -1 / 0 / 1 = left / neutral / right
@@ -423,6 +424,8 @@ void mousekey_task(void) {
 }
 
 void mousekey_on(uint8_t code) {
+    if (code >= KC_MS_UP && code <= KC_MS_RIGHT)
+        held_dirs |= 1 << (code - KC_MS_UP);
 #ifdef MK_KINETIC_SPEED
     if (mouse_timer == 0) {
         mouse_timer = timer_read();
@@ -528,6 +531,17 @@ void mousekey_off(uint8_t code) {
         mousekey_accel &= ~(1 << 1);
     else if (code == KC_MS_ACCEL2)
         mousekey_accel &= ~(1 << 2);
+#ifndef MOUSEKEY_INERTIA
+    // Any release zeroes its whole axis, so tapping F while holding S stopped the cursor with S
+    // still down. Point the axis back at a direction key that is still held.
+    if (code >= KC_MS_UP && code <= KC_MS_RIGHT) {
+        held_dirs &= ~(1 << (code - KC_MS_UP));
+        if (!mouse_report.y && (held_dirs & 0x3))
+            mouse_report.y = (held_dirs & 0x1) ? -move_unit() : move_unit();
+        if (!mouse_report.x && (held_dirs & 0xC))
+            mouse_report.x = (held_dirs & 0x4) ? -move_unit() : move_unit();
+    }
+#endif
     if (mouse_report.x == 0 && mouse_report.y == 0) {
         mousekey_repeat = 0;
 #ifdef MK_KINETIC_SPEED
@@ -696,6 +710,7 @@ void mousekey_send(void) {
 
 void mousekey_clear(void) {
     mouse_report = (report_mouse_t){};
+    held_dirs = 0;
     mousekey_repeat = 0;
     mousekey_wheel_repeat = 0;
     mousekey_accel = 0;
@@ -758,6 +773,10 @@ K_THREAD_DEFINE(zmk_mouse_tid, MY_STACK_SIZE, zmk_mouse_thread, NULL, NULL, NULL
 static K_WORK_DELAYABLE_DEFINE(mouse_sleep_work, mouse_sleep_worker);
 
 static K_SEM_DEFINE(thread_wait_sem, 0, 1);
+// mousekey_task() zeroes mouse_report, sends, then restores its snapshot; a mousekey_on/off from
+// the system workqueue landing in between (the send can block) was overwritten, so a released
+// direction kept moving until the next mouse key. Both sides take this lock.
+static K_MUTEX_DEFINE(mousekey_lock);
 static bool zmk_mouse_enable;
 static void mouse_sleep_worker(struct k_work *work) {
     // k_thread_suspend(zmk_mouse_tid);
@@ -773,7 +792,9 @@ void zmk_mouse_thread(void) {
             k_sem_take(&thread_wait_sem, K_FOREVER);
             zmk_mouse_enable = true;
         }
+        k_mutex_lock(&mousekey_lock, K_FOREVER);
         mousekey_task();
+        k_mutex_unlock(&mousekey_lock);
         k_msleep(8);
         if (count++ > 125) {
             LOG_DBG(".");
@@ -797,7 +818,11 @@ static int mouse_listener_keycode_released(const struct zmk_mouse_button_state_c
 
     LOG_DBG("mouse,release:%x", ev->buttons);
     mousekey_off(ev->buttons);
-    k_work_reschedule(&mouse_sleep_work, K_MSEC(200));
+    // Park the thread only once nothing moves; it used to park 200 ms after any release, so
+    // letting go of S while F was still held stopped the cursor.
+    if (!should_mousekey_report_send(&mouse_report)) {
+        k_work_reschedule(&mouse_sleep_work, K_MSEC(200));
+    }
     mousekey_send();
 
     return 0;
@@ -805,11 +830,13 @@ static int mouse_listener_keycode_released(const struct zmk_mouse_button_state_c
 int launcher_mouse_listener(const zmk_event_t *eh) {
     const struct zmk_mouse_button_state_changed *ev = as_zmk_mouse_button_state_changed(eh);
     if (ev) {
+        k_mutex_lock(&mousekey_lock, K_FOREVER);
         if (ev->state) {
             mouse_listener_keycode_pressed(ev);
         } else {
             mouse_listener_keycode_released(ev);
         }
+        k_mutex_unlock(&mousekey_lock);
     }
     return 0;
 }

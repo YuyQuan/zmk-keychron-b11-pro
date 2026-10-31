@@ -8,6 +8,8 @@
 #include <dt-bindings/zmk/keys.h>
 #include "dynamic_keymap.h"
 #include <dt-bindings/zmk/keychron.h>
+#include <string.h>
+#include "keypeek_names.h"
 
 #define RGB_TOG_CMD 0
 #define RGB_EFF_CMD 1
@@ -708,6 +710,20 @@ void set_zmk_encoders(uint8_t layer, bool clockwise, uint16_t keycode) {
 }
 #endif
 
+// Position of (label, param1) in keypeek_names.h, which is its QK_USER index; -1 = not listed.
+static int keypeek_user_index(const char *label, uint32_t param1, uint32_t param2) {
+    int i = 0;
+    if (strcmp(label, "DYN_MACRO") == 0)
+        param1 |= param2 << 8;
+#define KP_CHECK(l, p, n)                                                                          \
+    if (strcmp(label, l) == 0 && ((p) == KP_ANY || (int32_t)param1 == (p)))                        \
+        return i;                                                                                  \
+    i++;
+    KEYPEEK_NAMES(KP_CHECK)
+#undef KP_CHECK
+    return -1;
+}
+
 void generate_launcher_keymaps(void) {
     for (int layer = 0; layer < DYNAMIC_KEYMAP_LAYER_COUNT; layer++) {
         for (int row = 0; row < MATRIX_ROWS; row++) {
@@ -984,7 +1000,11 @@ void generate_launcher_keymaps(void) {
                     }
 #endif
                     else {
-                        gen_launcher_keymaps[layer][row][column] = KC_NO;
+                        // Custom macros / mod-morphs / &bt / &dm: one QK_USER slot each,
+                        // named for KeyPeek (keypeek_names.h).
+                        int user = keypeek_user_index(behavior_dev, binding->param1, binding->param2);
+                        gen_launcher_keymaps[layer][row][column] =
+                            user >= 0 ? QK_USER_0 + user : KC_NO;
                     }
                     dynamic_keymap_set_keycode_no_update(layer, row, column,
                                                          gen_launcher_keymaps[layer][row][column]);

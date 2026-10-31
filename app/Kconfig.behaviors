@@ -31,3 +31,24 @@ config ZMK_BEHAVIOR_MACRO
     bool
     default y
     depends on DT_HAS_ZMK_BEHAVIOR_MACRO_ENABLED || DT_HAS_ZMK_BEHAVIOR_MACRO_ONE_PARAM_ENABLED || DT_HAS_ZMK_BEHAVIOR_MACRO_TWO_PARAM_ENABLED
+
+config ZMK_BEHAVIOR_DYNAMIC_MACRO
+    bool
+    default y
+    depends on DT_HAS_ZMK_BEHAVIOR_DYNAMIC_MACRO_ENABLED
+
+if ZMK_BEHAVIOR_DYNAMIC_MACRO
+
+config ZMK_BEHAVIOR_DYNAMIC_MACRO_TAP_DELAY
+    int "Dynamic Macro Tap Delay (ms between replayed events)"
+    default 30
+
+config ZMK_BEHAVIOR_DYNAMIC_MACRO_MAX_SLOTS
+    int "Dynamic Macro Max Slots"
+    default 1
+
+config ZMK_BEHAVIOR_DYNAMIC_MACRO_MAX_EVENTS
+    int "Dynamic Macro Max Events (a keystroke is 2: press + release)"
+    default 32
+
+endif

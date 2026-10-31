@@ -63,6 +63,7 @@ const struct gpio_dt_spec c16_gpio = GPIO_DT_SPEC_GET_BY_IDX(DT_NODELABEL(kscan0
 #define HC595_DATA_HIGH (GPIOB->GPIO_DR |= BIT(21))
 #define HC595_LATCH_CLK_LOW (GPIOA->GPIO_DR &= ~BIT(5))
 #define HC595_LATCH_CLK_HIGH (GPIOA->GPIO_DR |= BIT(5))
+#define B11_595_COLS 8 /* B11 Pro: first 8 columns behind the 595, the rest are GPIO */
 #endif
 // static int gpio_rtl87x2g_gpio2pad(uint8_t port_num, uint32_t pin)
 // {
@@ -301,7 +302,15 @@ static int kscan_matrix_set_all_outputs(const struct device *dev, const int valu
 
 #else
     LOG_ERR("set output:%d", value);
-#if defined(CONFIG_COL_595_AND_GPIOS_OUTPUT)
+#if defined(CONFIG_SHIELD_KEYCHRON_B11_PRO_ANSI)
+    {
+        /* cols 8..14 are direct GPIO outputs, driven low when selected */
+        const struct kscan_matrix_config *b11_config = dev->config;
+        for (int i = B11_595_COLS; i < b11_config->outputs.len; i++) {
+            gpio_pin_set_dt(&b11_config->outputs.gpios[i].spec, value ? 0 : 1);
+        }
+    }
+#elif defined(CONFIG_COL_595_AND_GPIOS_OUTPUT)
     gpio_pin_set_dt(&c19_gpio, value ? 0 : 1);
     gpio_pin_set_dt(&c18_gpio, value ? 0 : 1);
     gpio_pin_set_dt(&c17_gpio, value ? 0 : 1);
@@ -418,6 +427,129 @@ static void kscan_matrix_read_end(const struct device *dev) {
     k_work_reschedule(&data->work, K_TIMEOUT_ABS_MS(data->scan_time));
 #endif
 }
+#if CONFIG_SHIELD_KEYCHRON_B11_PRO_ANSI
+/*
+ * Keychron B11 Pro: cols 0..7 sit behind one 74HC595, cols 8..14 are direct GPIO outputs, rows are
+ * active-low inputs on both GPIO ports. Checked against the stock scan (stock 0x0403299e): stock
+ * shifts one 0 in for col 0 and a 1 per later column (one SRCLK pulse, then RCLK), so column n is
+ * Q n and the selected column is low. This full 8-bit rewrite per column gives the same outputs.
+ */
+static void b11_595_select(int active_col) {
+    HC595_LATCH_CLK_LOW;
+    for (int k = 0; k < B11_595_COLS; k++) {
+        ((B11_595_COLS - 1 - k) == active_col) ? HC595_DATA_LOW : HC595_DATA_HIGH;
+        HC595_SHIFT_CLK_LOW;
+        HC595_SHIFT_CLK_HIGH;
+    }
+    HC595_SHIFT_CLK_LOW;
+    HC595_LATCH_CLK_HIGH;
+    HC595_LATCH_CLK_LOW;
+}
+
+/*
+ * Unselect delay: a held key keeps its row low until the pull-up recharges it after the column goes
+ * high. Reading the next column too early reports the key there as well (seen on the board: A gives
+ * A+S, F gives F+J). Wait until every row reads high, capped for a stuck or ghosted row.
+ */
+static void b11_wait_rows_high(struct kscan_matrix_data *data) {
+    for (int t = 0; t < 30; t++) {
+        bool all_high = true;
+        for (int j = 0; j < data->inputs.len; j++) {
+            const struct kscan_gpio *in_gpio = &data->inputs.gpios[j];
+            if (!(in_gpio->GPIOx->GPIO_PAD_STATE & BIT(in_gpio->spec.pin))) {
+                all_high = false;
+                break;
+            }
+        }
+        if (all_high) {
+            return;
+        }
+        k_busy_wait(1);
+    }
+}
+
+static void b11_scan(struct kscan_matrix_data *data, const struct kscan_matrix_config *config,
+                     uint32_t elapsed_ms) {
+    for (int col = 0; col < config->outputs.len; col++) {
+        const struct gpio_dt_spec *direct = &config->outputs.gpios[col].spec;
+        uint32_t key = irq_lock();
+        if (col < B11_595_COLS) {
+            b11_595_select(col);
+        } else {
+            gpio_pin_set_dt(direct, 0);
+        }
+        irq_unlock(key);
+        k_busy_wait(3);
+
+        for (int j = 0; j < data->inputs.len; j++) {
+            const struct kscan_gpio *in_gpio = &data->inputs.gpios[j];
+            const int index = state_index_io(config, in_gpio->index, col);
+            const int active = (in_gpio->GPIOx->GPIO_PAD_STATE & BIT(in_gpio->spec.pin)) ? 0 : 1;
+            zmk_debounce_update(&data->matrix_state[index], active, elapsed_ms,
+                                &user_debounce.debounce_config);
+        }
+
+        if (col >= B11_595_COLS) {
+            gpio_pin_set_dt(direct, 1);
+        } else {
+            b11_595_select(-1);
+        }
+        b11_wait_rows_high(data);
+    }
+}
+
+/*
+ * Ghost filter. The B11 matrix has no per-key diodes (stock runs an anti-ghost pass too): with three
+ * corners of a rectangle held, the fourth reads as pressed. Caps (1,2) and S (2,2) share a column, so
+ * caps+S+J also shows Y (1,5). Real and ghost corners are electrically identical, so a new press that
+ * sits on a fully held rectangle is held back, unless it is the only one of the new presses on that
+ * rectangle that does something on the active layers (zmk_kscan_ghost_prefer: e.g. J does something on
+ * a held layer and Y is transparent there). A held-back key stays silent until it is released.
+ */
+bool zmk_kscan_ghost_prefer(uint32_t row, uint32_t col); // app/src/kscan.c
+
+static uint16_t b11_down[16], b11_new[16], b11_blocked[16]; // per column, one bit per row
+
+static void b11_ghost_prepare(struct kscan_matrix_data *data, const struct kscan_matrix_config *config) {
+    for (int c = 0; c < config->cols; c++) {
+        b11_down[c] = b11_new[c] = 0;
+        for (int r = 0; r < config->rows; r++) {
+            struct zmk_debounce_state *state = &data->matrix_state[state_index_rc(config, r, c)];
+            if (zmk_debounce_is_pressed(state)) {
+                b11_down[c] |= BIT(r);
+                if (zmk_debounce_get_changed(state)) {
+                    b11_new[c] |= BIT(r);
+                }
+            }
+        }
+    }
+}
+
+static bool b11_ghost_hold_back(const struct kscan_matrix_config *config, int r, int c) {
+    bool on_rect = false, twin = false, twin_prefer = false;
+    for (int c2 = 0; c2 < config->cols; c2++) {
+        if (c2 == c || !(b11_down[c2] & BIT(r))) {
+            continue;
+        }
+        uint16_t rows2 = b11_down[c2] & b11_down[c] & ~BIT(r); // rows r2 with (r2,c), (r2,c2) held
+        for (int r2 = 0; r2 < config->rows; r2++) {
+            if (!(rows2 & BIT(r2))) {
+                continue;
+            }
+            on_rect = true;
+            const int corner[3][2] = {{r2, c}, {r, c2}, {r2, c2}};
+            for (int k = 0; k < 3; k++) {
+                if (b11_new[corner[k][1]] & BIT(corner[k][0])) {
+                    twin = true;
+                    twin_prefer |= zmk_kscan_ghost_prefer(corner[k][0], corner[k][1]);
+                }
+            }
+        }
+    }
+    return on_rect && !(twin && !twin_prefer && zmk_kscan_ghost_prefer(r, c));
+}
+#endif
+
 #if RTK_GPIO_FAST
 static int kscan_matrix_read(const struct device *dev) {
     struct kscan_matrix_data *data = dev->data;
@@ -648,6 +780,12 @@ static int kscan_matrix_read(const struct device *dev) {
             port = data->inputs.gpios[0].GPIOx->GPIO_PAD_STATE;
         }
     }
+#elif CONFIG_SHIELD_KEYCHRON_B11_PRO_ANSI
+#if CONFIG_FAST_KSCAN
+    b11_scan(data, config, elapsed_ms);
+#else
+    b11_scan(data, config, user_debounce.debounce_scan_period_ms);
+#endif
 #else
     volatile uint32_t port;
     uint32_t key;
@@ -720,6 +858,9 @@ static int kscan_matrix_read(const struct device *dev) {
 #endif
     // toggle_debug_pin();
     bool continue_scan = false;
+#if CONFIG_SHIELD_KEYCHRON_B11_PRO_ANSI
+    b11_ghost_prepare(data, config);
+#endif
 
     for (int r = 0; r < config->rows; r++) {
         for (int c = 0; c < config->cols; c++) {
@@ -728,6 +869,18 @@ static int kscan_matrix_read(const struct device *dev) {
 
             if (zmk_debounce_get_changed(state)) {
                 const bool pressed = zmk_debounce_is_pressed(state);
+#if CONFIG_SHIELD_KEYCHRON_B11_PRO_ANSI
+                if (pressed && b11_ghost_hold_back(config, r, c)) {
+                    b11_blocked[c] |= BIT(r);
+                }
+                if (b11_blocked[c] & BIT(r)) {
+                    if (!pressed) {
+                        b11_blocked[c] &= ~BIT(r);
+                    }
+                    continue_scan = continue_scan || zmk_debounce_is_active(state);
+                    continue;
+                }
+#endif
 
                 if (pressed)
                     data->press_rows |= BIT(r);

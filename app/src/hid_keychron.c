@@ -31,6 +31,10 @@ struct zmk_adapative_nkro adapative_nkro;
 static ATOMIC_DEFINE(report_changed, 2);
 bool nkro_changed(void) { return atomic_test_and_clear_bit(report_changed, NKRO_RPT); }
 bool kb_changed(void) { return atomic_test_and_clear_bit(report_changed, KB_RPT); }
+void zmk_hid_mark_keyboard_reports_changed(void) {
+    atomic_set_bit(report_changed, KB_RPT);
+    atomic_set_bit(report_changed, NKRO_RPT);
+}
 #endif
 
 #if IS_ENABLED(CONFIG_ZMK_MOUSE)

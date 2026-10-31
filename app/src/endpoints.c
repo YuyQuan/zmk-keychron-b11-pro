@@ -301,9 +301,38 @@ static int send_consumer_report(void) {
     return -ENOTSUP;
 }
 
+// Reports carry the whole key state, so re-sending the latest ones after typing pauses repairs a
+// key-up the link lost or delivered late, which the host otherwise autorepeats until the next report
+// (same fix as the B1 Pro tree). With adaptive NKRO a report only goes out when its changed
+// bit is set, so the re-send sets both first.
+// ponytail: BLE only, fixed 3 x 30 ms covers ~90 ms of radio trouble; raise WIRELESS_RESENDS if keys still stick.
+#define WIRELESS_RESEND_MS 30
+#define WIRELESS_RESENDS 3
+
+void zmk_hid_mark_keyboard_reports_changed(void); // hid_keychron.c
+static int resends_left;
+static void resend_work_cb(struct k_work *work);
+static K_WORK_DELAYABLE_DEFINE(resend_work, resend_work_cb);
+
+static void resend_work_cb(struct k_work *work) {
+#if CONFIG_ADAPATIVE_NKRO
+    zmk_hid_mark_keyboard_reports_changed();
+#endif
+    send_keyboard_report();
+    send_consumer_report();
+    if (--resends_left > 0) {
+        k_work_reschedule(&resend_work, K_MSEC(WIRELESS_RESEND_MS));
+    }
+}
+
 int zmk_endpoints_send_report(uint16_t usage_page) {
 
     LOG_DBG("usage page 0x%02X", usage_page);
+    if ((usage_page == HID_USAGE_KEY || usage_page == HID_USAGE_CONSUMER) &&
+        current_instance.transport == ZMK_TRANSPORT_BLE) {
+        resends_left = WIRELESS_RESENDS;
+        k_work_reschedule(&resend_work, K_MSEC(WIRELESS_RESEND_MS));
+    }
     switch (usage_page) {
     case HID_USAGE_KEY:
         return send_keyboard_report();

@@ -1,0 +1,17 @@
+/*
+ * Copyright (c) 2020 The ZMK Contributors
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
+#include <dt-bindings/zmk/dynamic_macro.h>
+
+/ {
+    behaviors {
+        /omit-if-no-ref/ dm: dynmacro {
+            compatible = "zmk,behavior-dynamic-macro";
+            label = "DYN_MACRO";
+            #binding-cells = <2>;
+        };
+    };
+};

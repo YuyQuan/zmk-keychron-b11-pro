@@ -672,6 +672,11 @@ if ZMK_LAUNCHER
 config LAUNCHER_USER_SET_DEBOUNCE
     bool "enable user set bebouce"
     default n
+
+config ZMK_LAUNCHER_BLE
+    bool "launcher raw HID channel (KeyPeek, VIA) over BLE as a second HID service"
+    depends on ZMK_BLE
+    default n
 endif
 
 config ZMK_SSD1306

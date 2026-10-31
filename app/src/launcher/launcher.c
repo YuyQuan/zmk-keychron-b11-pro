@@ -776,6 +776,9 @@ void raw_hid_send(uint8_t *data, uint8_t length) {
         zmk_usb_hid_launcher_send(data, length);
         break;
     case LAUNCHER_PATH_BLE:
+#if IS_ENABLED(CONFIG_ZMK_LAUNCHER_BLE)
+        launcher_ble_send(data);
+#endif
         break;
     case LAUNCHER_PATH_PPT:
         zmk_24g_send_launcher_report(data, length);
@@ -849,7 +852,7 @@ int launcher_init(void) {
     debounce.debounce_press_ms = DT_PROP(DT_NODELABEL(kscan0), debounce_press_ms);
     debounce.debounce_release_ms = DT_PROP(DT_NODELABEL(kscan0), debounce_release_ms);
 #if defined(CONFIG_SHIELD_KEYCHRON_RS87_ANSI) || defined(CONFIG_SHIELD_KEYCHRON_K3SE2_ANSI) ||     \
-    defined(CONFIG_SHIELD_KEYCHRON_K5SE2_ANSI)
+    defined(CONFIG_SHIELD_KEYCHRON_K5SE2_ANSI) || defined(CONFIG_SHIELD_KEYCHRON_B11_PRO_ANSI)
     debounce.div = 3;
 #if CONFIG_ADD_PPT_REPORT_RATE
     debounce.ppt_div = 3;
@@ -2092,7 +2095,8 @@ void kc_user_cmd(uint8_t *command_data) {
 #else
         uint8_t index = 1;
         command_data[index++] = 0;
-#if defined(CONFIG_SHIELD_KEYCHRON_K3SE2_ANSI) || defined(CONFIG_SHIELD_KEYCHRON_K5SE2_ANSI)
+#if defined(CONFIG_SHIELD_KEYCHRON_K3SE2_ANSI) || defined(CONFIG_SHIELD_KEYCHRON_K5SE2_ANSI) ||    \
+    defined(CONFIG_SHIELD_KEYCHRON_B11_PRO_ANSI)
         command_data[index++] = 1000 & 0xff;  // max  rate
         command_data[index++] = 1000 >> 8;    // max  rate
         command_data[index++] = 0x78;         // capability
@@ -2204,7 +2208,8 @@ void update_launcher_report_rate(void) {
     command_data[index++] = 0x0d;
     command_data[index++] = 0;
 #if CONFIG_ADD_PPT_REPORT_RATE
-#if defined(CONFIG_SHIELD_KEYCHRON_K3SE2_ANSI) || defined(CONFIG_SHIELD_KEYCHRON_K5SE2_ANSI)
+#if defined(CONFIG_SHIELD_KEYCHRON_K3SE2_ANSI) || defined(CONFIG_SHIELD_KEYCHRON_K5SE2_ANSI) ||    \
+    defined(CONFIG_SHIELD_KEYCHRON_B11_PRO_ANSI)
     command_data[index++] = 1000 & 0xff;  // max  rate
     command_data[index++] = 1000 >> 8;    // max  rate
     command_data[index++] = 0x78;         // capability
