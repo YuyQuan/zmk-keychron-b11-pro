@@ -24,7 +24,7 @@ jobs:
         include: ${{ fromJSON(needs.compile-matrix.outputs.include-list) }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Cache west modules
         uses: actions/cache@v4
         env:
@@ -178,7 +178,7 @@ jobs:
       core-include: ${{ steps.core-list.outputs.result }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Use Node.js
         uses: actions/setup-node@v4
         with:
@@ -207,7 +207,7 @@ jobs:
       boards-include: ${{ steps.boards-list.outputs.result }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Use Node.js
         uses: actions/setup-node@v4
         with:
@@ -334,7 +334,7 @@ jobs:
       organized-metadata: ${{ steps.organize-metadata.outputs.result }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Use Node.js
         uses: actions/setup-node@v4
         with:
@@ -414,7 +414,7 @@ jobs:
       core-changes: ${{ steps.core-changes.outputs.result }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: tj-actions/changed-files@v42
