@@ -42,7 +42,7 @@ jobs:
           /opt/toolchains/zephyr-sdk-${ZSDK_VERSION}/setup.sh -c
 
       - name: checkout manifest
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ env.ZMK_REPOSITORY }}
           path: "zmk"
